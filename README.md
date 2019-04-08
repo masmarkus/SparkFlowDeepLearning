@@ -19,6 +19,6 @@ SparkFlow requires Apache Spark >= 2.0, flask, and Tensorflow to all be installe
 ## Model Building Steps
 
 * Define your tensorflow graph definition function, This function should return the loss function.
-* Build your graph with the ```python model_graph = build_graph(<your graph definition function>)```.
-* Create the instance from ```python SparkAsyncDL``` from your ```python model_graph```.
-* Train the model with the instance of ```python pyspark.ml.Pipeline```.
+* Build your graph with the ```model_graph = build_graph(<your graph definition function>)```.
+* Create the instance from ```SparkAsyncDL``` from your ```python model_graph```.
+* Train the model with the instance of ```pyspark.ml.Pipeline```.
