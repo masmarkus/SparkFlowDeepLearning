@@ -59,10 +59,17 @@ spark_model = SparkAsyncDL(
 
 
 if __name__ == "__main__":
+
+
     # SparkContext Initialization
-    from pyspark.ml.pipeline import PipelineModel
+    from pyspark.ml.pipeline import Pipeline
     from pyspark.context import SparkContext
     from pyspark.sql.session import SparkSession
+
+    #sc = SparkContext('local')
+    sc = SparkContext.getOrCreate()
+    spark = SparkSession(sc)
+
 
     #Pipeline definition
     pipe = [va, encoded, spark_model]

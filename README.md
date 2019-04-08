@@ -11,5 +11,7 @@ provides faster training time when using big data.
 
 ## Installation
 
-Install sparkflow via pip: `$ pip install sparkflow`
+Install sparkflow via pip :
+`$ pip install sparkflow`
+
 SparkFlow requires Apache Spark >= 2.0, flask, and Tensorflow to all be installed.
