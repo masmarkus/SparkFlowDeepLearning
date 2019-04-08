@@ -53,6 +53,8 @@ spark_model = SparkAsyncDL(
 
 if __name__ == '__main__':
 
+    from pyspark.ml.pipeline import Pipeline
+
     # Pipeline definition
     pipe = [va, encoded, spark_model]
     # Train the CNN model
