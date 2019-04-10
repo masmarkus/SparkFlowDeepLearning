@@ -1,16 +1,25 @@
 
 
 import tensorflow as tf
+from pyspark.sql.session import SparkSession
+from pyspark.sql.functions import rand
+from pyspark.ml.feature import VectorAssembler, OneHotEncoder
+from sparkflow.graph_utils import build_graph
+from sparkflow.tensorflow_async import SparkAsyncDL
 
 
 #Spark Initialization
 spark = SparkSession.builder \
     .appName("examples") \
-    .master('local[8]').config('spark.driver.memory', '2g') \
+    .master('local[*]').config('spark.driver.memory', '4g') \
+    .config('spark.memory.offHeap.enabled',True) \
+    .config('spark.memory.offHeap.size', '4g') \
     .getOrCreate()
 
 # Dataset preparation
 df = spark.read.option("inferSchema", "true").csv('mnist_train.csv').orderBy(rand())
+
+#dt = df.limit(3)
 # Features selection
 va = VectorAssembler(inputCols=df.columns[1:785], outputCol='features')
 # Labels encoding
@@ -39,12 +48,13 @@ spark_model = SparkAsyncDL(
         tensorflowGraph=mg,
         tfInput='x:0',
         tfLabel='y:0',
+        tfOutput='out:0',
         tfOptimizer='adam',
         miniBatchSize=300,
         miniStochasticIters=-1,
         shufflePerIter=True,
-        iters=20,
-        tfLearningRate=.0001,
+        iters=10,
+        tfLearningRate=.001,
         predictionCol='predicted',
         labelCol='labels',
         verbose=1
@@ -54,10 +64,19 @@ spark_model = SparkAsyncDL(
 if __name__ == '__main__':
 
     from pyspark.ml.pipeline import Pipeline
+    try:
+        import time
+        # Pipeline definition
+        pipe = [va, encoded, spark_model]
 
-    # Pipeline definition
-    pipe = [va, encoded, spark_model]
-    # Train the CNN model
-    p = Pipeline(stages=pipe).fit(df)
-    # Save the model
-    p.save("cnn_model")
+        # Train the CNN model
+        start_time = time.time()
+        p = Pipeline(stages=pipe).fit(df)
+        print("--- %s seconds ---" % (time.time() - start_time))
+
+        # Save the model
+        #p.save("cnn_model")
+    except Exception as e:
+        print ("Error --> ", e)
+
+    #exec(open("cnn_example.py").read())
