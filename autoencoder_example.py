@@ -11,6 +11,7 @@ from pyspark.sql.functions import rand
 from sparkflow.graph_utils import build_graph
 
 
+
 def small_model():
     x = tf.placeholder("float", shape=[None, 784], name='x')
     layer1 = tf.layers.dense(x, 256, activation=tf.nn.relu)
@@ -53,7 +54,7 @@ if __name__ == '__main__':
         verbose=1).fit(na)
 
     print("--- %s seconds ---" % (time.time() - start_time))
-    
+
     #t = spark_model.transform(na).take(1)
     #print(t[0]['predicted'])
 
