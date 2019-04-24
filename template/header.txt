@@ -1,0 +1,21 @@
+# Import base
+import timeit
+import traceback, sys
+from pyspark.sql import SparkSession
+from pyspark import SparkConf, SparkContext
+
+# Intialize spark context
+conf = SparkConf()
+sc = SparkContext(conf=conf)
+sc.addPyFile("$SPARK_CODE_DEPEDENCIES_URL")
+
+# Import from custom depedencies
+from modules.metadata import Metadata
+from modules.metadata import PipelineType
+from utils.joiner import get_and_join_data
+from utils.logger import custom_logger
+
+# Initialize main variables
+spark = SparkSession(sc).builder.getOrCreate()
+logger = custom_logger()
+pipeline = $PIPELINE

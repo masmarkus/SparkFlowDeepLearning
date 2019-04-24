@@ -1,0 +1,53 @@
+def get_result(message):
+	#======================================================
+	# $PIPELINE_TITLE
+	#======================================================
+
+	try:
+		# Load and join data.
+		logger.info("Starting load and join data.")
+		data_train = get_and_join_data(message, spark)
+
+		time_start = timeit.default_timer()
+		n = 0
+
+		while n < $NUMBER_OF_TRIALS_PIPELINE:
+			try:
+				logger.info("Starting process $PIPELINE_TITLE.")
+				$STAGE_RESULT_TUPLE = stage_result(data_train, message)
+				break
+			except Exception as err:
+				n += 1
+				logger.error("Error occured when processing $PIPELINE_TITLE with {0} trial.".format(n))
+				if n == $NUMBER_OF_TRIALS_PIPELINE:
+					raise err
+
+		time_stop = timeit.default_timer()
+		time_total = time_stop - time_start
+
+		# Save model or data to hadoop
+		$SAVE_TO_HADOOP
+
+	except Exception as er:
+		raise er
+
+	return $RETURN_TUPLE
+
+
+def main(message):
+	try:
+		$GET_RESULT_TUPLE = get_result(message)
+		hadoop_metadata_path = message["metadata_path"]
+		metadata = Metadata($METADATA_PARAMS)
+		metadata.process_metadata()
+
+	except Exception as er:
+		traceback.print_exc(file=sys.stdout)
+		hadoop_metadata_path = message["metadata_path"]
+		metadata = Metadata($METADATA_ERROR_PARAMS)
+		metadata.process_metadata()
+	spark.stop()
+
+
+if __name__ == "__main__":
+	main(pipeline)
