@@ -6,6 +6,7 @@ from textwrap import dedent
 top_level_directory = abspath(join(dirname(__file__), ".."))
 sys.path.insert(0, top_level_directory)
 
+import json
 import simplejson as json
 from hdfs3 import HDFileSystem
 
@@ -18,6 +19,7 @@ from constants import SETTING
 from constants import TEMPLATE_PATH
 from pipeline_message_example import PIPELINE_MESSAGE
 from logger import custom_logger
+from typing import Dict, List, Any
 
 # Initialize logger
 logger = custom_logger()
@@ -88,7 +90,7 @@ def write_import_modul(estimator, pipeline_type, message):
     # Import evaluator in certain pipeline
     modul_imported = "\n"
     modul_imported += "from pyspark.ml import Pipeline\n"
-    if pipeline_type != 0 and pipeline_type != 3:
+    if pipeline_type not in [0,3]:
         modul_imported += "from pyspark.ml.tuning import ParamGridBuilder\n"
         if pipeline_type == 1:
             # Cross Validator
@@ -106,12 +108,22 @@ def write_import_modul(estimator, pipeline_type, message):
     import_statement = []
     for stg in range(len(estimator)):
         modul = list(estimator[stg].keys())[0]
+        print ("modul --> ", modul)
+        if modul == "DNN":
+            modul_imported += "import tensorflow as tf\n"
+            modul_imported += "import os\n"
+            modul_imported += "from sparkflow.pipeline_util import PysparkPipelineWrapper\n"
+            modul_imported += "from sparkflow.graph_utils import build_graph\n"
+
+        for key, value in modul_dict.items():
+            print ("key modul_dict --> ", key)
         import_modul_str = modul_dict[modul]
-        if import_modul_str not in import_statement:
+        if import_modul_str not in import_statement and import_modul_str != "DNN":
             import_statement.append(import_modul_str)
             modul_imported += import_modul_str + "\n"
 
     modul_imported += "\n\n"
+    print ("modul_imported -> ", modul_imported)
 
     return modul_imported
 
@@ -151,6 +163,57 @@ def write_stage_result_function_definition(pipeline_type):
     return stage_result
 
 
+def sparkflow_dnn(inputShape : int, outputShape : int, layers : List[int], activationFunc : List[str]) -> str:
+    """
+    example of Args :
+    :inputShape = 784
+    :outputShape = 10
+    :layers = [256, 128]
+    :activationFunc = ["relu", "relu"]
+
+    :return value -> string
+    """
+    z = list(zip(layers, activationFunc))
+    l = list()
+    for index, (layer, activFunc) in enumerate(z):
+        print ("index |--> ", index)
+        print ("layer |--> ", layer)
+        print ("activFunc |--> ", activFunc)
+        if index == 0:
+            l.append("layer" + str(index) + " = " + "tf.layers.dense(x, {}, activation=tf.nn.{})".format(layer, activFunc))
+        else:
+            l.append("layer" + str(index) + " = " + "tf.layers.dense(layer"+ str(index-1) +", {}, activation=tf.nn.{})".format(layer, activFunc))
+
+
+    print ("l |--> ", l)
+
+    stage_result = f"""
+    \n
+    def graph_model():
+    \t\"\"\"
+    \tInput : None
+    \tOutput : str
+    \t\"\"\"
+    \tx = tf.placeholder(tf.float32, shape=[None, 784], name='x')
+    \ty = tf.placeholder(tf.float32, shape=[None, 10], name='y')
+    """
+    for layer in l:
+        stage_result += "\n\t\t" + layer
+        #stage_result += "\t"
+    print ("stage_result |-> ", stage_result)
+
+    last_index = len(layers) - 1
+    out = "\n\t\tout = tf.layers.dense(layer" + str(last_index) +","+ str(outputShape) +")" + \
+          "\n\t\tz = tf.argmax(out, 1, name='out')" + \
+          "\n\t\tloss = tf.losses.softmax_cross_entropy(y, out)" + \
+          "\n\t\treturn loss"
+
+    stage_result += "\n\t\t" + out + "\n\n"
+
+    print ("stage_result final |-> ", stage_result)
+    return fixing_indentation(stage_result)
+
+
 def write_algorithm_object(estimator):
     """
     Write all algorithm object is needed in the pipeline
@@ -162,17 +225,17 @@ def write_algorithm_object(estimator):
                 }
         modul_MinMaxScaler = MinMaxScaler(**params_dict_MinMaxScaler)
         params_dict_GeneralizedLinearRegression = {
-                "featuresCol": "fiturMinMaxScaler",
-                "labelCol": "price_volume", "predictionCol": "prediction",
-                "linkPredictionCol": "link_prediction", "solver": "irls",
-                "fitIntercept": True, "family": "tweedie", "maxIter": 100,
-                "tol": 1e-06, "regParam": 0.01, "variancePower": 0, "link":
-                "identity", "linkPower": 2
+                "featuresCol" : "fiturMinMaxScaler",
+                "labelCol" : "price_volume", "predictionCol" : "prediction",
+                "linkPredictionCol" : "link_prediction", "solver" : "irls",
+                "fitIntercept" : True, "family": "tweedie", "maxIter" : 100,
+                "tol" : 1e-06, "regParam" : 0.01, "variancePower" : 0, "link":
+                "identity", "linkPower" : 2
                 }
         modul_GeneralizedLinearRegression =
             GeneralizedLinearRegression(**params_dict_GeneralizedLinearRegression)
         stages_pipeline1 = [modul_MinMaxScaler, modul_GeneralizedLinearRegression]
-    :param estimator: (dict) list of estimator from user pipeline
+    :param estimator: (list) list of dict of estimator from user pipeline [{Estimator1}, {Estimator2}, ...]
     :return: (str)
     """
 
@@ -181,9 +244,12 @@ def write_algorithm_object(estimator):
     modul_list = []
 
     # writing all algorithm objects estimator with their parameters
+    print ("estimator -> ", estimator)
     for stg in range(len(estimator)):
+        print ("stg -> ", stg)
         # modul_i adalah key dari dictionary dalam list estimator stages ke stg
         modul_i = list(estimator[stg].keys())[0]
+        print ("modul_i -> ", modul_i)
         if modul_i != "PipelineModel":
             # create index for modul_i if modul_i exist in modul_list
             # example modul_GeneralizedLinearRegression_1
@@ -195,14 +261,28 @@ def write_algorithm_object(estimator):
             else:
                 modul_list.append(modul_i)
 
+
             # extract all parameters of modul_i
             params_dict = estimator[stg][algo_class]
+            print ("params_dict : ", params_dict)
             # writing paramemers of modul_i
-            string = "\tparams_dict_" + modul_i + " = " + str(params_dict) + "\n"
+            string = "\n\tparams_dict_" + modul_i + " = " + str(params_dict) + "\n"
+
+
+            print ("string 1 : ", string)
+
+
+            streng = ""
+            if modul_i == "DNN":
+                algo_class = "SparkAsyncDL"
+                streng = "\n\tparams_dict_" + modul_i + "[" + '"' + "tensorflowGraph" + '"' + "]" + " = " + "build_graph(graph_model)" + "\n"
             # writing object of modul_i with parameters
+            print ("string 2 : ", string)
             strong = "\tmodul_" + modul_i + " = " + algo_class + "(**params_dict_" \
                      + modul_i + ")\n\n"
-            strung += string + strong
+            print ("strong : ", strong)
+            strung += string + streng + strong
+            print ("strung : ", strung)
             # create pipeline from modul_i
             stages_code_string += "modul_" + modul_i + \
                                   (", " if stg != len(estimator) - 1 else "")
@@ -357,15 +437,25 @@ def code_generator_fit_gp(estimator, filename):
 
     pipeline_type = 0
     try:
+
         # Importing modul
         import_modul_str = write_import_modul(estimator, pipeline_type, {})
+        dnn = ""
+        for stg in range(len(estimator)):
+            modul_i = list(estimator[stg].keys())[0]
+            print ("modul_i | ", modul_i)
+            print ("stg | ", stg)
+            if modul_i == "DNN":
+                dnn = sparkflow_dnn(inputShape=784, outputShape=10, layers=[128,128,64,32], activationFunc=["relu", "relu", "relu", "relu"])
+
 
         # Creating stage result function definition
+
         stage_result_str = write_stage_result_function_definition(
             pipeline_type)
 
         # Creating algorithm object
-        algo_object_str = write_algorithm_object(estimator)
+        algo_object_str = dnn + write_algorithm_object(estimator)
 
         # Creating prediction process
         pred_process_str = write_prediction_process(pipeline_type)
@@ -403,12 +493,10 @@ def code_generator_fit_cv(message, estimator, filename):
     pipeline_type = 1
     try:
         # Importing modul
-        import_modul_str = write_import_modul(
-            estimator, pipeline_type, message)
+        import_modul_str = write_import_modul(estimator, pipeline_type, message)
 
         # Creating stage result function definition
-        stage_result_str = write_stage_result_function_definition(
-            pipeline_type)
+        stage_result_str = write_stage_result_function_definition(pipeline_type)
 
         # Creating algorithm object
         algo_object_str = write_algorithm_object(estimator)
@@ -510,12 +598,10 @@ def code_generator_transform(estimator, filename):
     pipeline_type = 3
     try:
         # Importing modul
-        import_modul_str = write_import_modul(
-            estimator, pipeline_type, {})
+        import_modul_str = write_import_modul(estimator, pipeline_type, {})
 
         # Creating stage result function definition
-        stage_result_str = write_stage_result_function_definition(
-            pipeline_type)
+        stage_result_str = write_stage_result_function_definition(pipeline_type)
 
         # Creating algorithm object
         algo_object_str = write_algorithm_object(estimator)
@@ -573,9 +659,9 @@ def create_header(message, filename):
         header_template_path = "{0}{1}/header.txt".format(top_level_directory, TEMPLATE_PATH["TEMPLATE"])
         logger.info("header_template_path : '{0}'.".format(header_template_path))
         header_pattern = {
-            "$SPARK_CODE_DEPEDENCIES_URL": CONFIG["SPARK_CODE_DEPEDENCIES_URL"],
-            "$PIPELINE": str(message)
-        }
+                            "$SPARK_CODE_DEPEDENCIES_URL": CONFIG["SPARK_CODE_DEPEDENCIES_URL"],
+                            "$PIPELINE": str(message)
+                         }
         #print ('header_pattern : ', header_pattern)
         header_str = Templater.load_template(header_template_path)
         header_str = Templater.replace_word(header_str, header_pattern)
@@ -805,7 +891,84 @@ def generator(message: dict):
 
 
 def main():
+
+    PIPELINE_MESSAGE = [{
+      "id": "b434073a-3655-11e9-877b-0242ac110006",
+      "userId": "a878b137-d9c7-4217-9b91-f09b7837d13d",
+      "jobId": None,
+      "algorithmConfiguration": "{\"user_id\": \"a878b137-d9c7-4217-9b91-f09b7837d13d\", \"date\": \"2019-02-22T03:39:14.530Z\", \"username\": \"\", \"pipeline_group_name\": \"HPP with LR GP Testing 14042019\", \"composer_id\": \"79b09cd8-3653-11e9-be8a-0242ac110002\", \"parents_data_id\": [\"7c4670cf-0f49-4091-93b0-945ce8c67b54\"], \"parents_user_id_model\": [], \"parents_model_id\": [], \"parents_user_id_data\": [\"a878b137-d9c7-4217-9b91-f09b7837d13d\"], \"parents_data_price\": [0], \"parents_model_price\": [], \"numFolds\": 3, \"trainRatio\": 1, \"last_stage\": \"fit\", \"type\": \"GeneralPipeline\", \"output_col\": \"all\", \"estimatorParamMaps\": {\"ParamGridBuilder\": [{\"DNN\": \"None\"}]}, \"evaluator\": {\"name\": \"MulticlassClassificationEvaluator\", \"params\": {\"metricName\": \"f1\"}}, \"estimator\": [{\"DNN\": {\"labelCol\": \"price\", \"featuresCol\": \"1_vector\", \"predictionCol\": \"prediction\", \"aggregationDepth\": 2, \"solver\": \"auto\", \"standardization\": true, \"fitIntercept\": true, \"elasticNetParam\": 0, \"maxIter\": 100, \"regParam\": 0, \"tol\": 1e-06, \"loss\": \"squaredError\", \"epsilon\": 1.35}}], \"data\": {\"path\": [\"file:////Users/tmunir/Hobby/Volantis/Galaxy/hadoop/ml_studio/source_dataset/7c4670cf-0f49-4091-93b0-945ce8c67b54/1/1546403372058\"], \"action\": {\"adapter\": [[{\"from\": [{\"value\": \"n818134795\", \"datatype\": \"string\"}, {\"value\": \"n1624556946\", \"datatype\": \"string\"}, {\"value\": \"p1433103548\", \"datatype\": \"string\"}, {\"value\": \"n247383290\", \"datatype\": \"string\"}, {\"value\": \"n1552720724\", \"datatype\": \"string\"}], \"to\": [{\"value\": \"1_vector\", \"datatype\": \"vector\"}]}, {\"from\": [{\"value\": \"p77381929\", \"datatype\": \"string\"}], \"to\": [{\"value\": \"price\", \"datatype\": \"double\"}]}]], \"join\": \"None\"}, \"hash_map\": [[\"n818134795\", \"p77381929\", \"n1624556946\", \"p1433103548\", \"n247383290\", \"n1552720724\"]], \"hash_dict\": {\"n818134795\": {\"name\": \"size\", \"datatype\": \"double\"}, \"p77381929\": {\"name\": \"price\", \"datatype\": \"double\"}, \"n1624556946\": {\"name\": \"bathroom\", \"datatype\": \"int\"}, \"p1433103548\": {\"name\": \"bedroom\", \"datatype\": \"int\"}, \"n247383290\": {\"name\": \"garage_cars\", \"datatype\": \"int\"}, \"n1552720724\": {\"name\": \"land_size\", \"datatype\": \"int\"}}, \"input_col\": [\"1_vector\", \"price\"], \"column_input_dictionary\": {\"1_vector\": {\"datatype\": \"vector\", \"columns\": [\"size\", \"bathroom\", \"bedroom\", \"garage_cars\", \"land_size\"], \"columns_datatype\": [\"double\", \"int\", \"int\", \"int\", \"int\"]}, \"price\": {\"datatype\": \"double\"}}}, \"fit_id\": \"79b09ab2-3653-11e9-be8a-0242ac110002\", \"access_token\": \"EZ66yi6GZWbDOcvoooXajBWbCY3GrKcQwRRq83egVztRPDa6zg6z7is9zrbR3yoq\"}",
+      "runningTime": None,
+      "memoryConsumed": None,
+      "outputPath": None,
+      "inputCol": None,
+      "outputCol": None,
+      "params": None,
+      "pipelineGroupName": "HPP with LR GP Testing 14042019",
+      "metricPerformance": None,
+      "parentsDataId": ["55a36855-be4e-11e8-92b8-08d40cec20c9"],
+      "parentsDataUserId": ["b5f232f3-18b9-4a5a-b728-b2fcddfed955"],
+      "parentsDataPrice": [0],
+      "parentsModelId": None,
+      "parentsModelUserId": None,
+      "parentsModelPrice": None,
+      "inputSchema": None,
+      "outputSchema": None,
+      "dataSampleModel": None,
+      "payloadData": None,
+      "size": None,
+      "price": None,
+      "endpoints": None,
+      "endpointsServiceId": None,
+      "logError": None,
+      "status": {
+        "stage": "RUNNING",
+        "result": "QUEUED"
+      },
+      "pipelineType": "FIT",
+    }]
+
+    message  = [{
+                  "id": "b434073a-3655-11e9-877b-0242ac110006",
+                  "userId": "a878b137-d9c7-4217-9b91-f09b7837d13d",
+                  "jobId": None,
+                  "algorithmConfiguration": "{\"user_id\": \"a878b137-d9c7-4217-9b91-f09b7837d13d\", \"date\": \"2019-02-22T03:39:14.530Z\", \"username\": \"\", \"pipeline_group_name\": \"HPP with LR GP Testing 14042019\", \"composer_id\": \"79b09cd8-3653-11e9-be8a-0242ac110002\", \"parents_data_id\": [\"7c4670cf-0f49-4091-93b0-945ce8c67b54\"], \"parents_user_id_model\": [], \"parents_model_id\": [], \"parents_user_id_data\": [\"a878b137-d9c7-4217-9b91-f09b7837d13d\"], \"parents_data_price\": [0], \"parents_model_price\": [], \"numFolds\": 3, \"trainRatio\": 1, \"last_stage\": \"fit\", \"type\": \"GeneralPipeline\", \"output_col\": \"all\", \"estimatorParamMaps\": {\"ParamGridBuilder\": [{\"LinearRegression\": \"None\"}]}, \"evaluator\": {\"name\": \"MulticlassClassificationEvaluator\", \"params\": {\"metricName\": \"f1\"}}, \"estimator\": [{\"LinearRegression\": {\"labelCol\": \"price\", \"featuresCol\": \"1_vector\", \"predictionCol\": \"prediction\", \"aggregationDepth\": 2, \"solver\": \"auto\", \"standardization\": true, \"fitIntercept\": true, \"elasticNetParam\": 0, \"maxIter\": 100, \"regParam\": 0, \"tol\": 1e-06, \"loss\": \"squaredError\", \"epsilon\": 1.35}}], \"data\": {\"path\": [\"file:////Users/tmunir/Hobby/Volantis/Galaxy/hadoop/ml_studio/source_dataset/7c4670cf-0f49-4091-93b0-945ce8c67b54/1/1546403372058\"], \"action\": {\"adapter\": [[{\"from\": [{\"value\": \"n818134795\", \"datatype\": \"string\"}, {\"value\": \"n1624556946\", \"datatype\": \"string\"}, {\"value\": \"p1433103548\", \"datatype\": \"string\"}, {\"value\": \"n247383290\", \"datatype\": \"string\"}, {\"value\": \"n1552720724\", \"datatype\": \"string\"}], \"to\": [{\"value\": \"1_vector\", \"datatype\": \"vector\"}]}, {\"from\": [{\"value\": \"p77381929\", \"datatype\": \"string\"}], \"to\": [{\"value\": \"price\", \"datatype\": \"double\"}]}]], \"join\": \"None\"}, \"hash_map\": [[\"n818134795\", \"p77381929\", \"n1624556946\", \"p1433103548\", \"n247383290\", \"n1552720724\"]], \"hash_dict\": {\"n818134795\": {\"name\": \"size\", \"datatype\": \"double\"}, \"p77381929\": {\"name\": \"price\", \"datatype\": \"double\"}, \"n1624556946\": {\"name\": \"bathroom\", \"datatype\": \"int\"}, \"p1433103548\": {\"name\": \"bedroom\", \"datatype\": \"int\"}, \"n247383290\": {\"name\": \"garage_cars\", \"datatype\": \"int\"}, \"n1552720724\": {\"name\": \"land_size\", \"datatype\": \"int\"}}, \"input_col\": [\"1_vector\", \"price\"], \"column_input_dictionary\": {\"1_vector\": {\"datatype\": \"vector\", \"columns\": [\"size\", \"bathroom\", \"bedroom\", \"garage_cars\", \"land_size\"], \"columns_datatype\": [\"double\", \"int\", \"int\", \"int\", \"int\"]}, \"price\": {\"datatype\": \"double\"}}}, \"fit_id\": \"79b09ab2-3653-11e9-be8a-0242ac110002\", \"access_token\": \"EZ66yi6GZWbDOcvoooXajBWbCY3GrKcQwRRq83egVztRPDa6zg6z7is9zrbR3yoq\"}",
+                  "runningTime": None,
+                  "memoryConsumed": None,
+                  "outputPath": None,
+                  "inputCol": None,
+                  "outputCol": None,
+                  "params": None,
+                  "pipelineGroupName": "HPP with LR GP Testing 14042019",
+                  "metricPerformance": None,
+                  "parentsDataId": ["55a36855-be4e-11e8-92b8-08d40cec20c9"],
+                  "parentsDataUserId": ["b5f232f3-18b9-4a5a-b728-b2fcddfed955"],
+                  "parentsDataPrice": [0],
+                  "parentsModelId": None,
+                  "parentsModelUserId": None,
+                  "parentsModelPrice": None,
+                  "inputSchema": None,
+                  "outputSchema": None,
+                  "dataSampleModel": None,
+                  "payloadData": None,
+                  "size": None,
+                  "price": None,
+                  "endpoints": None,
+                  "endpointsServiceId": None,
+                  "logError": None,
+                  "status": {
+                    "stage": "RUNNING",
+                    "result": "QUEUED"
+                  },
+                  "pipelineType": "FIT",
+    }]
+
     for pipeline in PIPELINE_MESSAGE[0:1]:
+        print ("pipeline type --> ", type(pipeline))
+        algoConf = json.loads(pipeline["algorithmConfiguration"])
+        print ("algorithmConfiguration --> ", type(json.loads(pipeline["algorithmConfiguration"])))
+        for key, val in algoConf.items():
+            print ("key : ", key)
+        print ("estimator --> ", algoConf["estimator"])
         generator(pipeline)
 
 

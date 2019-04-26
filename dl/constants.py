@@ -155,7 +155,11 @@ MODUL_DICT = {
     "MLWritable": "from pyspark.ml.util import MLWritable",
     "MLWriter": "from pyspark.ml.util import MLWriter",
     "custom_adapter": "from adapter import custom_adapter",
-    "ClusteringEvaluator": "from pyspark.ml.evaluation import ClusteringEvaluator"
+    "ClusteringEvaluator": "from pyspark.ml.evaluation import ClusteringEvaluator",
+    #NewAlgos
+    "DNN" : "from sparkflow.tensorflow_async import SparkAsyncDL",
+    "CNN" : "from sparkflow.tensorflow_async import SparkAsyncDL",
+    
 }
 
 NUMBER_OF_TRIALS_PIPELINE = 3
